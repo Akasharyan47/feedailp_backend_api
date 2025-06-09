@@ -1,4 +1,4 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -11,15 +11,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes
+CORS(app)  # Enable CORS
 
-# Firebase initialization with Base64 encoded service account from env variable
+# Initialize Firebase
 try:
     encoded_json = os.getenv("FIREBASE_CREDENTIALS")
     if not encoded_json:
         raise ValueError("FIREBASE_CREDENTIALS environment variable not set!")
 
-    # Fix padding issue if any
+    # Fix padding if needed
     missing_padding = len(encoded_json) % 4
     if missing_padding != 0:
         encoded_json += '=' * (4 - missing_padding)
@@ -33,6 +33,7 @@ except Exception as e:
     print(f"Error initializing Firebase Admin SDK: {e}")
     exit(1)
 
+# Get Firestore client
 db = firestore.client()
 
 def format_response(data_list):
@@ -40,6 +41,10 @@ def format_response(data_list):
         "status": "success",
         "data": data_list
     })
+
+# ================================
+# ROUTES
+# ================================
 
 @app.route('/api/service_types', methods=['GET'])
 def get_service_types():
@@ -86,9 +91,39 @@ def get_products(brand_id):
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
+@app.route('/api/submit_review', methods=['POST'])
+def submit_review():
+    try:
+        data = request.get_json()
+
+        required_fields = ['product', 'District', 'Star_Ratings', 'Yes_No']
+        for field in required_fields:
+            if field not in data or not data[field]:
+                return jsonify({
+                    "status": "error",
+                    "message": f"Missing or empty field: {field}"
+                }), 400
+
+        data["timestamp"] = firestore.SERVER_TIMESTAMP
+        db.collection("reviews").add(data)
+
+        return jsonify({
+            "status": "success",
+            "message": "Review submitted successfully!"
+        }), 200
+
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
 @app.route('/', methods=['GET'])
 def health_check():
-    return jsonify({"message": "Service Catalog API is running"}), 200
+    return jsonify({"message": "Feedailp API is running"}), 200
 
+# ================================
+# RUN
+# ================================
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
