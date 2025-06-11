@@ -29,7 +29,7 @@ from routes.submit_review import submit_review_bp
 from routes.get_reviews import get_reviews_bp
 from routes.get_user_reviews import get_user_reviews_bp
 from routes.update_review import update_review_bp
-from routes.service_types import service_types_bp
+from routes.service_types import service_types_bp 
 
 app.register_blueprint(submit_review_bp)
 app.register_blueprint(get_reviews_bp)

@@ -1,16 +1,12 @@
 from flask import Blueprint, jsonify, request
 from firebase_admin import firestore
-import hashlib
+import re
 
 submit_review_bp = Blueprint('submit_review_bp', __name__)
 db = firestore.client()
 
-def generate_3digit_id(email: str, product_id: str) -> str:
-    unique_str = email.lower() + "_" + product_id
-    hash_bytes = hashlib.sha256(unique_str.encode()).digest()
-    hash_int = int.from_bytes(hash_bytes[:4], 'big')
-    id_num = hash_int % 1000
-    return f"{id_num:03d}"  # zero-padded 3-digit string
+def sanitize_email(email: str) -> str:
+    return re.sub(r'[^\w]', '_', email.lower())  # email ke special chars replace karo
 
 @submit_review_bp.route('/api/submit_review', methods=['POST'])
 def submit_review():
@@ -25,40 +21,48 @@ def submit_review():
                     "message": f"Missing or empty field: {field}"
                 }), 400
 
+        product_info = data['product']
         try:
-            product_id = data['product']['product']['product_id']
-        except Exception:
+            product_id = product_info['product']['product_id']
+        except Exception as e:
             return jsonify({
                 "status": "error",
-                "message": "Invalid product structure or missing product_id"
+                "message": f"Invalid product structure: {str(e)}"
             }), 400
 
-        # Generate 3-digit unique ID based on email + product_id
-        doc_id = generate_3digit_id(data['email'], product_id)
+        # 📌 Sanitize email to make it Firestore safe
+        email_doc_id = sanitize_email(data['email'])
 
-        # Prepare data to save including the user name
+        # 📦 Prepare data
         review_data = {
-            "product": data['product'],
+            "product": product_info,
             "District": data['District'],
             "Star_Ratings": data['Star_Ratings'],
             "Yes_No": data['Yes_No'],
             "email": data['email'],
-            "name": data['name'],    # Store actual user name here
+            "name": data['name'],
             "reviewText": data['reviewText'],
             "timestamp": firestore.SERVER_TIMESTAMP
         }
 
-        # Save to Firestore with doc_id = 3-digit ID
-        db.collection("reviews").document(doc_id).set(review_data)
+        # 🧠 Save data: reviews -> email_doc_id -> products -> product_id -> data
+        db.collection("reviews") \
+            .document(email_doc_id) \
+            .collection("products") \
+            .document(product_id) \
+            .set(review_data)
 
+        print(f"✅ Data saved for email: {email_doc_id}, product: {product_id}")
         return jsonify({
             "status": "success",
-            "message": f"Review submitted successfully with ID {doc_id}!",
-            "doc_id": doc_id,
-            "user_name": data['name']  # Return the user name as well
+            "message": f"Review saved under {email_doc_id}/{product_id}",
+            "email_doc_id": email_doc_id,
+            "product_id": product_id
         }), 200
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({
             "status": "error",
             "message": str(e)
